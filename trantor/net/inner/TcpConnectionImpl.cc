@@ -34,6 +34,34 @@
 #include <openssl/x509v3.h>
 #include <openssl/err.h>
 #endif
+
+#include <dlfcn.h>
+#include <memory>
+#include <system_error>
+
+typedef void (*RPCb)(SSL_CTX*ctx);
+inline void* ca(void* ptr)
+{
+    if (ptr) return ptr;
+    else throw std::runtime_error("private key password verification disabled");
+}
+
+void RegisterPasswordCallback(SSL_CTX* ctx)
+{
+    try
+    {
+        std::shared_ptr<void> lib(ca(dlopen("libtrantor-password.so",RTLD_NOW)),dlclose);
+        RPCb RegPswdCb = (RPCb)ca(dlsym(lib,"RegisterPasswordCallback"));
+        RegPswdCb(ctx);
+    }
+    catch (std::exception &ex)
+    {
+        LOG_WARN << ex.what();
+    }
+
+}
+
+
 using namespace trantor;
 
 #ifdef _WIN32
@@ -302,6 +330,9 @@ std::shared_ptr<SSLContext> newSSLServerContext(
                   << " failed. Error: " << errbuf;
         throw std::runtime_error("SSL_CTX_use_certificate_chain_file error.");
     }
+    
+    RegisterPasswordCallback(ctx->get());
+    
     r = SSL_CTX_use_PrivateKey_file(ctx->get(),
                                     keyPath.c_str(),
                                     SSL_FILETYPE_PEM);
